@@ -105,7 +105,7 @@ def extract_inventory(raw: dict[str, Any]) -> dict[str, Any]:
     icons: set[int] = {int(_icon_num(th_id)) for th_id in thermostats}
     relays: dict[str, dict[str, str]] = {}
     for icon_key, icon_data in cfg.items():
-        if not icon_key.startswith("ICON"):
+        if not icon_key.startswith("ICON") or not icon_key[4:].isdigit():
             continue
         icon_num = icon_key[4:]  # "ICON1" -> "1"
         icons.add(int(icon_num))
@@ -181,7 +181,7 @@ def raw_to_canonical(raw: dict[str, Any]) -> dict[str, Any]:
 
     # Relays and mixing valve, per configured controller.
     for icon_key, icon_data in cfg.items():
-        if not icon_key.startswith("ICON"):
+        if not icon_key.startswith("ICON") or not icon_key[4:].isdigit():
             continue
         icon_num = icon_key[4:]
         icon = _icon(icon_num)
