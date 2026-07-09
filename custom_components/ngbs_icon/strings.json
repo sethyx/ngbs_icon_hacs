@@ -1,0 +1,44 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "ip_address": "[%key:common::config_flow::data::ip_address%]",
+          "id": "System ID",
+          "scan_interval": "Poll interval (seconds)"
+        },
+        "data_description": {
+          "ip_address": "IP address of the iCON controller.",
+          "id": "The System ID (SYSID) used to fetch device names.",
+          "scan_interval": "How often to poll the controller over Modbus."
+        }
+      },
+      "reconfigure": {
+        "data": {
+          "ip_address": "[%key:common::config_flow::data::ip_address%]",
+          "id": "System ID",
+          "scan_interval": "Poll interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "invalid_id": "Invalid system ID",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
+    },
+    "abort": {
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+      "unique_id_mismatch": "The System ID does not match the configured device."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "scan_interval": "Poll interval (seconds)"
+        }
+      }
+    }
+  }
+}
