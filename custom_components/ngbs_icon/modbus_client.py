@@ -67,6 +67,76 @@ def _hcmode(raw: int) -> str:
     return "switchover"
 
 
+def _decode_icon(
+    icon_num: int,
+    block: list[int],
+    system_cooling: bool,
+    therm_names: dict[str, str],
+    icon_relay_names: dict[str, str],
+) -> dict[str, Any]:
+    """Decode one device's standard block into its canonical icon dict."""
+    reg_a_mask = block[reg.OFF_REG_A]
+    reg_b_mask = block[reg.OFF_REG_B]
+    demand_mask = reg_a_mask | reg_b_mask
+    eco_mask = block[reg.OFF_ECO]
+    noconn_mask = block[reg.OFF_NOCONN]
+    live_mask = block[reg.OFF_LIVE]
+    cond_mask = block[reg.OFF_COND]
+    relay_word = block[reg.OFF_RELAY]
+
+    thermostats: dict[str, Any] = {}
+    for th in range(1, reg.MAX_THERMOSTATS + 1):
+        bit = th - 1
+        if not _bit(live_mask, bit) or _bit(noconn_mask, bit):
+            continue
+        th_id = f"{icon_num}.{th}"
+        sp_base = reg.OFF_SETPOINT + bit * 4
+        sp_heat_normal = _temp(block[sp_base + reg.SP_HEAT_NORMAL])
+        sp_cool_normal = _temp(block[sp_base + reg.SP_COOL_NORMAL])
+        sp_heat_eco = _temp(block[sp_base + reg.SP_HEAT_ECO])
+        sp_cool_eco = _temp(block[sp_base + reg.SP_COOL_ECO])
+        eco = _bit(eco_mask, bit)
+        if eco:
+            target = sp_cool_eco if system_cooling else sp_heat_eco
+        else:
+            target = sp_cool_normal if system_cooling else sp_heat_normal
+
+        thermostats[th_id] = {
+            "name": therm_names.get(th_id),
+            "temp": _temp(block[reg.OFF_TEMP + bit]),
+            "rh": _rh(block[reg.OFF_RH + bit]),
+            "dew": _temp(block[reg.OFF_DEW + bit]),
+            "eco": eco,
+            "demand": _bit(demand_mask, bit),
+            "demand_a": _bit(reg_a_mask, bit),
+            "demand_b": _bit(reg_b_mask, bit),
+            "cond": _bit(cond_mask, bit),
+            "live": _bit(live_mask, bit),
+            "cooling": system_cooling,
+            "target": target,
+            "sp_heat_normal": sp_heat_normal,
+            "sp_cool_normal": sp_cool_normal,
+            "sp_heat_eco": sp_heat_eco,
+            "sp_cool_eco": sp_cool_eco,
+        }
+
+    relays: dict[str, Any] = {}
+    for relay_id, bit_index in reg.RELAY_BIT_FOR_ID.items():
+        key = f"R{relay_id}"
+        relays[key] = {
+            "name": icon_relay_names.get(key),
+            "on": _bit(relay_word, bit_index),
+        }
+
+    ao = block[reg.OFF_AO]
+    return {
+        "firmware": block[reg.OFF_PRGVER],
+        "mixing_valve_pct": round(ao / 10.0, 1),
+        "thermostats": thermostats,
+        "relays": relays,
+    }
+
+
 class IconModbusClient:
     """Persistent Modbus-TCP client for an NGBS iCON bus."""
 
@@ -242,68 +312,9 @@ class IconModbusClient:
         for device_index, block in blocks.items():
             icon_num = device_index + 1
             icon_key = str(icon_num)
-            icon_relay_names = relay_names.get(icon_key, {})
-
-            reg_a_mask = block[reg.OFF_REG_A]
-            reg_b_mask = block[reg.OFF_REG_B]
-            demand_mask = reg_a_mask | reg_b_mask
-            eco_mask = block[reg.OFF_ECO]
-            noconn_mask = block[reg.OFF_NOCONN]
-            live_mask = block[reg.OFF_LIVE]
-            cond_mask = block[reg.OFF_COND]
-            relay_word = block[reg.OFF_RELAY]
-
-            thermostats: dict[str, Any] = {}
-            for th in range(1, reg.MAX_THERMOSTATS + 1):
-                bit = th - 1
-                if not _bit(live_mask, bit) or _bit(noconn_mask, bit):
-                    continue
-                th_id = f"{icon_num}.{th}"
-                sp_base = reg.OFF_SETPOINT + bit * 4
-                sp_heat_normal = _temp(block[sp_base + reg.SP_HEAT_NORMAL])
-                sp_cool_normal = _temp(block[sp_base + reg.SP_COOL_NORMAL])
-                sp_heat_eco = _temp(block[sp_base + reg.SP_HEAT_ECO])
-                sp_cool_eco = _temp(block[sp_base + reg.SP_COOL_ECO])
-                eco = _bit(eco_mask, bit)
-                if eco:
-                    target = sp_cool_eco if system_cooling else sp_heat_eco
-                else:
-                    target = sp_cool_normal if system_cooling else sp_heat_normal
-
-                thermostats[th_id] = {
-                    "name": therm_names.get(th_id),
-                    "temp": _temp(block[reg.OFF_TEMP + bit]),
-                    "rh": _rh(block[reg.OFF_RH + bit]),
-                    "dew": _temp(block[reg.OFF_DEW + bit]),
-                    "eco": eco,
-                    "demand": _bit(demand_mask, bit),
-                    "demand_a": _bit(reg_a_mask, bit),
-                    "demand_b": _bit(reg_b_mask, bit),
-                    "cond": _bit(cond_mask, bit),
-                    "live": _bit(live_mask, bit),
-                    "cooling": system_cooling,
-                    "target": target,
-                    "sp_heat_normal": sp_heat_normal,
-                    "sp_cool_normal": sp_cool_normal,
-                    "sp_heat_eco": sp_heat_eco,
-                    "sp_cool_eco": sp_cool_eco,
-                }
-
-            relays: dict[str, Any] = {}
-            for relay_id, bit_index in reg.RELAY_BIT_FOR_ID.items():
-                key = f"R{relay_id}"
-                relays[key] = {
-                    "name": icon_relay_names.get(key),
-                    "on": _bit(relay_word, bit_index),
-                }
-
-            ao = block[reg.OFF_AO]
-            data["icons"][icon_key] = {
-                "firmware": block[reg.OFF_PRGVER],
-                "mixing_valve_pct": round(ao / 10.0, 1),
-                "thermostats": thermostats,
-                "relays": relays,
-            }
+            data["icons"][icon_key] = _decode_icon(
+                icon_num, block, system_cooling, therm_names, relay_names.get(icon_key, {})
+            )
 
         return data
 

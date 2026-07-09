@@ -115,14 +115,14 @@ class IconClimate(IconThermostatEntity, ClimateEntity):
         await self.coordinator.client.async_set_temperature(
             self._thermostat_id, temperature, self._is_cooling, eco
         )
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_now()
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Switch the system between heating and cooling (master only)."""
         if hvac_mode == self.hvac_mode:
             return
         await self.coordinator.client.async_set_hvac_mode(hvac_mode == HVACMode.COOL)
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_now()
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set the ECO/comfort preset."""
@@ -131,4 +131,4 @@ class IconClimate(IconThermostatEntity, ClimateEntity):
         await self.coordinator.client.async_set_preset_mode(
             self._thermostat_id, preset_mode == PRESET_ECO
         )
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_now()
