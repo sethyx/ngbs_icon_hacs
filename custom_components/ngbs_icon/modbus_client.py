@@ -108,7 +108,7 @@ class IconModbusClient:
         client = await self._ensure_connected()
         try:
             result = await client.read_holding_registers(
-                address, count=reg.READ_COUNT, slave=self._unit
+                address, count=reg.READ_COUNT, device_id=self._unit
             )
         except ModbusException as err:
             # Drop the connection so the next call reconnects cleanly.
@@ -259,7 +259,7 @@ class IconModbusClient:
         client = await self._ensure_connected()
         try:
             result = await client.write_registers(
-                address, [value], slave=self._unit
+                address, [value], device_id=self._unit
             )
         except ModbusException as err:
             await self.async_close()
