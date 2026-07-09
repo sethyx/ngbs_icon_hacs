@@ -91,6 +91,7 @@ Runtime polling and all writes (setpoints, presets, HVAC mode) go over Modbus on
 
 - An NGBS iCON controller with Modbus-TCP enabled (port 502 reachable from Home Assistant).
 - Port 7992 (the legacy JSON/TCP protocol) reachable from Home Assistant during setup/reconfigure only, so the SYSID and naming inventory can be fetched automatically.
+- A **fixed IP address** for the controller — either set directly in the iCON's own web UI, or reserved for its MAC address on your DHCP server. The integration connects to a single stored IP; if it changes, Home Assistant will lose connectivity until you run **Reconfigure** with the new address.
 
 ## Installation
 
