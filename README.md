@@ -24,6 +24,35 @@ This integration talks to the controller primarily over **Modbus-TCP** (port 502
 - After a setpoint, preset, or H/C-mode write, the whole dataset is re-read and pushed to entities almost immediately instead of waiting for the next scheduled poll — see [Live update behavior](#live-update-behavior-after-writes).
 - Options flow to adjust the poll interval without reconfiguring the whole entry.
 
+## Requirements
+
+- An NGBS iCON controller with Modbus-TCP enabled (port 502 reachable from Home Assistant).
+- Port 7992 (the legacy JSON/TCP protocol) reachable from Home Assistant during setup/reconfigure only, so the SYSID and naming inventory can be fetched automatically.
+- A **fixed IP address** for the controller — either set directly in the iCON's own web UI, or reserved for its MAC address on your DHCP server. The integration connects to a single stored IP; if it changes, Home Assistant will lose connectivity until you run **Reconfigure** with the new address.
+
+## Installation
+
+### HACS (recommended)
+
+1. Add this repository as a custom repository in HACS (category: Integration), or install it directly if it has been added to the default HACS store.
+2. Install "NGBS iCON" from HACS.
+3. Restart Home Assistant.
+
+### Manual
+
+1. Copy `custom_components/ngbs_icon` into your Home Assistant `config/custom_components/` directory.
+2. Restart Home Assistant.
+
+## Configuration
+
+Configuration is done entirely through the UI:
+
+1. **Settings → Devices & Services → Add Integration → NGBS iCON**.
+2. Enter the controller's IP address. The System ID is discovered automatically — you don't need to enter it.
+3. Optionally adjust the poll interval (default 60 seconds, minimum 30).
+
+The poll interval can later be changed from the integration's **Configure** option without going through setup again. **Reconfigure** re-discovers the SYSID from the (possibly new) IP address and aborts if it doesn't match the originally configured controller, so you can't accidentally repoint an existing entry at a different physical system.
+
 ## Devices & entities
 
 ### iCON controller devices
@@ -87,35 +116,6 @@ Modbus has no way to expose human-readable thermostat/relay names, or the contro
 
 Runtime polling and all writes (setpoints, presets, HVAC mode) go over Modbus only.
 
-## Requirements
-
-- An NGBS iCON controller with Modbus-TCP enabled (port 502 reachable from Home Assistant).
-- Port 7992 (the legacy JSON/TCP protocol) reachable from Home Assistant during setup/reconfigure only, so the SYSID and naming inventory can be fetched automatically.
-- A **fixed IP address** for the controller — either set directly in the iCON's own web UI, or reserved for its MAC address on your DHCP server. The integration connects to a single stored IP; if it changes, Home Assistant will lose connectivity until you run **Reconfigure** with the new address.
-
-## Installation
-
-### HACS (recommended)
-
-1. Add this repository as a custom repository in HACS (category: Integration), or install it directly if it has been added to the default HACS store.
-2. Install "NGBS iCON" from HACS.
-3. Restart Home Assistant.
-
-### Manual
-
-1. Copy `custom_components/ngbs_icon` into your Home Assistant `config/custom_components/` directory.
-2. Restart Home Assistant.
-
-## Configuration
-
-Configuration is done entirely through the UI:
-
-1. **Settings → Devices & Services → Add Integration → NGBS iCON**.
-2. Enter the controller's IP address. The System ID is discovered automatically — you don't need to enter it.
-3. Optionally adjust the poll interval (default 60 seconds, minimum 30).
-
-The poll interval can later be changed from the integration's **Configure** option without going through setup again. **Reconfigure** re-discovers the SYSID from the (possibly new) IP address and aborts if it doesn't match the originally configured controller, so you can't accidentally repoint an existing entry at a different physical system.
-
 ## Development
 
 This repository also ships CLI tools (`custom_components/ngbs_icon/tools/`) used while migrating from the legacy JSON protocol to Modbus:
@@ -125,6 +125,10 @@ This repository also ships CLI tools (`custom_components/ngbs_icon/tools/`) used
 - `compare.py` — fetch both datasets and report any mismatch, used to verify the Modbus implementation against the legacy protocol on real hardware.
 
 See `iCON_MODBUS_Register_Map.md` for the Modbus register documentation this integration is built against.
+
+## Acknowledgements
+
+Thanks to [molnarg](https://github.com/molnarg) for [ngbs-icon](https://github.com/molnarg/ngbs-icon), which documented the legacy JSON/TCP protocol and was a valuable reference during development of this integration.
 
 ## License
 
