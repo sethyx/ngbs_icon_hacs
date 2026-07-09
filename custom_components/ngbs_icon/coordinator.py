@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 import logging
 from typing import Any
@@ -22,6 +23,11 @@ from .modbus_client import IconModbusClient, IconModbusError
 _LOGGER = logging.getLogger(__name__)
 
 type IconConfigEntry = ConfigEntry[IconDataUpdateCoordinator]
+
+# The controller's internal regulation cycle takes ~1-1.2s to fold a write
+# into its read-only mirror registers (measured live); wait this long before
+# reading back so the post-write refresh doesn't just observe the stale value.
+WRITE_SETTLE_DELAY = 1.5
 
 
 class IconDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -65,9 +71,13 @@ class IconDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         thermostat's preset can cascade to every zone, and a relay/valve can
         be wired to a different iCON than the thermostat driving it - so this
         always re-reads every controller rather than just the one written to.
-        A full read is fast in practice (well under a second). Best effort:
-        on failure this silently defers to the next scheduled poll.
+        A full read is fast in practice (well under a second), but the
+        controller itself needs a moment to fold the write into its
+        read-only mirror registers, so this waits ``WRITE_SETTLE_DELAY``
+        first. Best effort: on failure this silently defers to the next
+        scheduled poll.
         """
+        await asyncio.sleep(WRITE_SETTLE_DELAY)
         try:
             data = await self.client.async_get_data(self.inventory)
         except IconModbusError as err:
