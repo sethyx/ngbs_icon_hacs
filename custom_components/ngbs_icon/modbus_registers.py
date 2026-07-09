@@ -32,6 +32,7 @@ OFF_NOCONN = 0x0008  # No thermostat connection / not configured, bit=1
 OFF_RELAY = 0x000A  # Relay regulation state bitfield
 OFF_DI = 0x000B  # Digital inputs / system bits
 OFF_LIVE = 0x000E  # Thermostat connection alive, bit=1
+OFF_COND = 0x0002  # Condensation warning, bit=1 cooling blocked in that zone
 
 DI_PUMP_BIT = 8  # Di register: pump active (any A or B loop)
 
@@ -39,6 +40,9 @@ DI_PUMP_BIT = 8  # Di register: pump active (any A or B loop)
 OFF_AO = 0x0010  # Mixing valve output, 0..1000 = 0..10V
 OFF_WATER_TEMP = 0x0011  # Ai.0 water temperature, x0.1 C
 OFF_OUTDOOR_TEMP = 0x0012  # Ai.1 outdoor temperature, x0.1 C
+OFF_AI5 = 0x0016  # Ai.5 DC 15V supply voltage, mV
+OFF_AI6 = 0x0017  # Ai.6 thermostat supply voltage, mV
+OFF_AI7 = 0x0018  # Ai.7 I/O board reference voltage, mV
 
 # Per-thermostat measurements (index 0..7 -> thermostat 1..8)
 OFF_TEMP = 0x0019  # Temp.1..8, x0.1 C
@@ -56,6 +60,24 @@ OFF_PRGVER = 0x0054  # firmware version, 0 on unreachable slave -> used for disc
 # Single read window that covers everything above (offset 0x00..0x57 inclusive)
 READ_START = 0x0000
 READ_COUNT = 0x0058  # 88 registers, < 125 (FC3 limit)
+
+# --- Extended function registers (absolute addresses, no device offset) -----
+
+
+def extended_base(device_index: int) -> int:
+    """Return the extended-function block base address for a device index (0..7)."""
+    return 0x2000 + 0x0100 * device_index
+
+
+# Offsets relative to extended_base(device_index). Only ever populated on the
+# device that self-reports as Master via ISTATUS; other devices read back 0
+# (out-of-range registers read as 0, see spec section 4.2).
+OFF_CYCL = 0x0000  # I/O cycle counter (Master only)
+OFF_ISTATUS = 0x0001  # iCON status flags
+EXT_READ_COUNT = 2  # covers OFF_CYCL + OFF_ISTATUS in one read
+
+ISTATUS_MASTER_BIT = 0  # bit=1: this device is the Master
+ISTATUS_ONLINE_BIT = 1  # bit=1: online
 
 # --- Write offsets (relative to device_base) --------------------------------
 

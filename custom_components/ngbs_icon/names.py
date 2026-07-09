@@ -30,6 +30,54 @@ class IconJsonConnectionError(IconJsonError):
     """Raised when the controller cannot be reached over JSON/TCP."""
 
 
+async def _async_send(
+    host: str, port: int, timeout: float, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Send a single JSON command over a fresh TCP connection and return the response."""
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout
+        )
+    except (TimeoutError, OSError) as err:
+        raise IconJsonConnectionError(f"Connection failed: {err}") from err
+
+    try:
+        writer.write(json.dumps(payload).encode("utf-8"))
+        await writer.drain()
+        response = await asyncio.wait_for(reader.read(-1), timeout=timeout)
+    except (TimeoutError, OSError) as err:
+        raise IconJsonConnectionError(f"Communication failed: {err}") from err
+    finally:
+        if not writer.is_closing():
+            writer.close()
+            await writer.wait_closed()
+
+    if not response:
+        raise IconJsonConnectionError("Empty response from controller")
+    try:
+        return json.loads(response.decode("utf-8"))
+    except json.JSONDecodeError as err:
+        raise IconJsonError(f"Invalid JSON response: {err}") from err
+
+
+async def async_discover_sysid(
+    host: str, port: int = DEFAULT_JSON_PORT, timeout: float = 2.0
+) -> str:
+    """Discover a controller's SYSID via the ``{"RELOAD": 6}`` broadcast query.
+
+    Unlike a normal ``RELOAD`` request, this variant does not require a SYSID
+    to be sent and is used during config flow to auto-detect it, e.g.::
+
+        {"SYSID": "500118017047", "DOWNLOAD": 0,
+         "ICON1": {"VER:": "621163406", "FIRMWARE": 1079}, ...}
+    """
+    data = await _async_send(host, port, timeout, {"RELOAD": 6})
+    sysid = data.get("SYSID")
+    if not sysid:
+        raise IconJsonError("Controller did not return a SYSID")
+    return sysid
+
+
 class IconJsonClient:
     """Minimal JSON-over-TCP client (one request per connection)."""
 
@@ -44,31 +92,8 @@ class IconJsonClient:
 
     async def _async_request(self, command: dict[str, Any]) -> dict[str, Any]:
         """Send a single JSON command and return the decoded response."""
-        try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(self._host, self._port), timeout=self._timeout
-            )
-        except (TimeoutError, OSError) as err:
-            raise IconJsonConnectionError(f"Connection failed: {err}") from err
-
-        try:
-            payload = command | {"SYSID": self._system_id}
-            writer.write(json.dumps(payload).encode("utf-8"))
-            await writer.drain()
-            response = await asyncio.wait_for(reader.read(-1), timeout=self._timeout)
-        except (TimeoutError, OSError) as err:
-            raise IconJsonConnectionError(f"Communication failed: {err}") from err
-        finally:
-            if not writer.is_closing():
-                writer.close()
-                await writer.wait_closed()
-
-        if not response:
-            raise IconJsonConnectionError("Empty response from controller")
-        try:
-            data = json.loads(response.decode("utf-8"))
-        except json.JSONDecodeError as err:
-            raise IconJsonError(f"Invalid JSON response: {err}") from err
+        payload = command | {"SYSID": self._system_id}
+        data = await _async_send(self._host, self._port, self._timeout, payload)
         if data.get("ERR") == 1:
             raise IconJsonError("Controller returned an error (bad SYSID?)")
         return data

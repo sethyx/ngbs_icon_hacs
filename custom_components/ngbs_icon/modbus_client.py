@@ -58,6 +58,15 @@ def _bit(word: int, index: int) -> bool:
     return bool((word >> index) & 1)
 
 
+def _hcmode(raw: int) -> str:
+    """Decode the HCmode register into a human-readable enum."""
+    if raw == 0:
+        return "heating"
+    if raw == 1:
+        return "cooling"
+    return "switchover"
+
+
 class IconModbusClient:
     """Persistent Modbus-TCP client for an NGBS iCON bus."""
 
@@ -118,6 +127,22 @@ class IconModbusClient:
             return None
         return list(result.registers)
 
+    async def _read_extended(self, device_index: int) -> tuple[int, int] | None:
+        """Read a device's (CYCL, ISTATUS) extended-function pair, or None on error."""
+        address = reg.extended_base(device_index)
+        client = await self._ensure_connected()
+        try:
+            result = await client.read_holding_registers(
+                address, count=reg.EXT_READ_COUNT, device_id=self._unit
+            )
+        except ModbusException as err:
+            await self.async_close()
+            raise IconModbusConnectionError(f"Modbus read failed: {err}") from err
+        if result.isError():
+            return None
+        cycl, istatus = result.registers
+        return cycl, istatus
+
     # -- discovery ------------------------------------------------------------
 
     async def async_discover(self) -> list[int]:
@@ -145,7 +170,10 @@ class IconModbusClient:
 
             {
               "system": {"cooling": bool, "water_temp": float|None,
-                         "outdoor_temp": float|None},
+                         "outdoor_temp": float|None, "hcmode": str,
+                         "prgver": int, "supply_15v": int,
+                         "supply_thermostat": int, "ref_voltage": int,
+                         "cycl": int|None, "master_icon": str},
               "icons": {
                 "<icon_num>": {
                   "mixing_valve_pct": float|None,
@@ -154,6 +182,9 @@ class IconModbusClient:
                 }
               }
             }
+
+        Each thermostat dict additionally carries ``demand_a``, ``demand_b``,
+        ``cond`` and ``live`` bit-derived booleans alongside ``eco``.
 
         ``inventory`` (from the JSON setup path) is optional and only used to
         fill in human-readable thermostat/relay ``name`` fields.
@@ -169,10 +200,25 @@ class IconModbusClient:
                 if block is not None and block[reg.OFF_PRGVER] != 0:
                     blocks[device_index] = block
 
-        if not blocks:
-            raise IconModbusConnectionError("No iCON devices responded")
+            if not blocks:
+                raise IconModbusConnectionError("No iCON devices responded")
 
-        master_index = min(blocks)
+            # Determine the Master via the ISTATUS flag rather than assuming
+            # the lowest device index: only the true Master's extended block
+            # reports a non-zero CYCL/ISTATUS pair (others read back 0, as
+            # out-of-range registers do). Fall back to the lowest index if no
+            # device reports the flag (e.g. older firmware).
+            master_index = min(blocks)
+            cycl: int | None = None
+            for device_index in blocks:
+                extended = await self._read_extended(device_index)
+                if extended is None:
+                    continue
+                device_cycl, istatus = extended
+                if _bit(istatus, reg.ISTATUS_MASTER_BIT):
+                    master_index = device_index
+                    cycl = device_cycl
+
         master = blocks[master_index]
         system_cooling = master[reg.OFF_HCMODE] == 1
 
@@ -182,6 +228,13 @@ class IconModbusClient:
                 "pump": _bit(master[reg.OFF_DI], reg.DI_PUMP_BIT),
                 "water_temp": _temp(master[reg.OFF_WATER_TEMP]),
                 "outdoor_temp": _temp(master[reg.OFF_TEX]),
+                "hcmode": _hcmode(master[reg.OFF_HCMODE]),
+                "prgver": master[reg.OFF_PRGVER],
+                "supply_15v": master[reg.OFF_AI5],
+                "supply_thermostat": master[reg.OFF_AI6],
+                "ref_voltage": master[reg.OFF_AI7],
+                "cycl": cycl,
+                "master_icon": str(master_index + 1),
             },
             "icons": {},
         }
@@ -191,10 +244,13 @@ class IconModbusClient:
             icon_key = str(icon_num)
             icon_relay_names = relay_names.get(icon_key, {})
 
-            demand_mask = block[reg.OFF_REG_A] | block[reg.OFF_REG_B]
+            reg_a_mask = block[reg.OFF_REG_A]
+            reg_b_mask = block[reg.OFF_REG_B]
+            demand_mask = reg_a_mask | reg_b_mask
             eco_mask = block[reg.OFF_ECO]
             noconn_mask = block[reg.OFF_NOCONN]
             live_mask = block[reg.OFF_LIVE]
+            cond_mask = block[reg.OFF_COND]
             relay_word = block[reg.OFF_RELAY]
 
             thermostats: dict[str, Any] = {}
@@ -221,6 +277,10 @@ class IconModbusClient:
                     "dew": _temp(block[reg.OFF_DEW + bit]),
                     "eco": eco,
                     "demand": _bit(demand_mask, bit),
+                    "demand_a": _bit(reg_a_mask, bit),
+                    "demand_b": _bit(reg_b_mask, bit),
+                    "cond": _bit(cond_mask, bit),
+                    "live": _bit(live_mask, bit),
                     "cooling": system_cooling,
                     "target": target,
                     "sp_heat_normal": sp_heat_normal,

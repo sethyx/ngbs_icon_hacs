@@ -5,12 +5,40 @@ from __future__ import annotations
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
+    BinarySensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import IconConfigEntry, IconDataUpdateCoordinator
 from .entity import IconIconEntity, IconThermostatEntity
+
+THERMOSTAT_BINARY_SENSORS: tuple[BinarySensorEntityDescription, ...] = (
+    BinarySensorEntityDescription(
+        key="demand_a",
+        name="A-loop demand",
+        device_class=BinarySensorDeviceClass.RUNNING,
+    ),
+    BinarySensorEntityDescription(
+        key="demand_b",
+        name="B-loop demand",
+        device_class=BinarySensorDeviceClass.RUNNING,
+    ),
+    BinarySensorEntityDescription(
+        key="cond",
+        name="Condensation",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+    ),
+    BinarySensorEntityDescription(
+        key="eco",
+        name="ECO",
+    ),
+    BinarySensorEntityDescription(
+        key="live",
+        name="Connection",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+    ),
+)
 
 
 async def async_setup_entry(
@@ -21,13 +49,17 @@ async def async_setup_entry(
     """Set up binary sensors for thermostats, relays and the pump."""
     coordinator = entry.runtime_data
     data = coordinator.data
-    master_icon = str(min(int(k) for k in data["icons"]))
+    master_icon = data["system"]["master_icon"]
 
     entities: list[BinarySensorEntity] = []
     for icon_key, icon in data["icons"].items():
         for thermostat_id in icon["thermostats"]:
             entities.append(
                 IconHvacRequestBinarySensor(coordinator, icon_key, thermostat_id)
+            )
+            entities.extend(
+                IconThermostatBinarySensor(coordinator, icon_key, thermostat_id, desc)
+                for desc in THERMOSTAT_BINARY_SENSORS
             )
         for relay_id, relay in icon["relays"].items():
             # Only relays configured on the controller carry a name.
@@ -62,6 +94,29 @@ class IconHvacRequestBinarySensor(IconThermostatEntity, BinarySensorEntity):
     def is_on(self) -> bool | None:
         """Return True when the zone is demanding energy."""
         return self._thermostat["demand"] if self._thermostat else None
+
+
+class IconThermostatBinarySensor(IconThermostatEntity, BinarySensorEntity):
+    """A per-thermostat status binary sensor."""
+
+    def __init__(
+        self,
+        coordinator: IconDataUpdateCoordinator,
+        icon_key: str,
+        thermostat_id: str,
+        description: BinarySensorEntityDescription,
+    ) -> None:
+        """Initialize the sensor from its description."""
+        super().__init__(coordinator, icon_key, thermostat_id)
+        self.entity_description = description
+        self._attr_unique_id = f"{coordinator.sysid}_{thermostat_id}_{description.key}"
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return the status bit."""
+        if self._thermostat is None:
+            return None
+        return self._thermostat[self.entity_description.key]
 
 
 class IconRelayBinarySensor(IconIconEntity, BinarySensorEntity):

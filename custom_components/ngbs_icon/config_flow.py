@@ -23,14 +23,18 @@ from .const import (
 )
 from .coordinator import IconConfigEntry
 from .modbus_client import IconModbusClient, IconModbusError
-from .names import IconJsonClient, IconJsonConnectionError, IconJsonError
+from .names import (
+    IconJsonClient,
+    IconJsonConnectionError,
+    IconJsonError,
+    async_discover_sysid,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_IP_ADDRESS): str,
-        vol.Required(CONF_ID): str,
         vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): vol.All(
             vol.Coerce(int), vol.Range(min=MIN_SCAN_INTERVAL)
         ),
@@ -38,12 +42,14 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
-async def _validate(host: str, sysid: str) -> dict[str, Any]:
-    """Validate connectivity and return the naming inventory.
+async def _validate(host: str) -> tuple[str, dict[str, Any]]:
+    """Discover the SYSID and validate connectivity, returning it with the inventory.
 
-    Fetches names over the legacy JSON protocol (also validates the SYSID) and
-    confirms the controller is reachable and discoverable over Modbus.
+    The SYSID is auto-detected over the legacy JSON protocol (no prior
+    knowledge of it needed), then used to fetch the naming inventory. Modbus
+    reachability is confirmed separately.
     """
+    sysid = await async_discover_sysid(host)
     inventory = await IconJsonClient(host, sysid).async_fetch_inventory()
     modbus = IconModbusClient(host)
     try:
@@ -53,7 +59,7 @@ async def _validate(host: str, sysid: str) -> dict[str, Any]:
         await modbus.async_close()
     if not present:
         raise IconModbusError("No iCON devices discovered over Modbus")
-    return inventory
+    return sysid, inventory
 
 
 class NgbsIconConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -67,20 +73,16 @@ class NgbsIconConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle the initial setup step."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            await self.async_set_unique_id(user_input[CONF_ID])
-            self._abort_if_unique_id_configured()
             try:
-                inventory = await _validate(
-                    user_input[CONF_IP_ADDRESS], user_input[CONF_ID]
-                )
-            except (IconJsonConnectionError, IconModbusError):
+                sysid, inventory = await _validate(user_input[CONF_IP_ADDRESS])
+            except (IconJsonConnectionError, IconJsonError, IconModbusError):
                 errors["base"] = "cannot_connect"
-            except IconJsonError:
-                errors["base"] = "invalid_id"
             else:
+                await self.async_set_unique_id(sysid)
+                self._abort_if_unique_id_configured()
                 return self.async_create_entry(
                     title="NGBS iCON",
-                    data={**user_input, CONF_INVENTORY: inventory},
+                    data={**user_input, CONF_ID: sysid, CONF_INVENTORY: inventory},
                 )
 
         return self.async_show_form(
@@ -93,20 +95,20 @@ class NgbsIconConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle reconfiguration of an existing entry."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            await self.async_set_unique_id(user_input[CONF_ID])
-            self._abort_if_unique_id_mismatch()
             try:
-                inventory = await _validate(
-                    user_input[CONF_IP_ADDRESS], user_input[CONF_ID]
-                )
-            except (IconJsonConnectionError, IconModbusError):
+                sysid, inventory = await _validate(user_input[CONF_IP_ADDRESS])
+            except (IconJsonConnectionError, IconJsonError, IconModbusError):
                 errors["base"] = "cannot_connect"
-            except IconJsonError:
-                errors["base"] = "invalid_id"
             else:
+                await self.async_set_unique_id(sysid)
+                self._abort_if_unique_id_mismatch()
                 return self.async_update_reload_and_abort(
                     self._get_reconfigure_entry(),
-                    data_updates={**user_input, CONF_INVENTORY: inventory},
+                    data_updates={
+                        **user_input,
+                        CONF_ID: sysid,
+                        CONF_INVENTORY: inventory,
+                    },
                 )
 
         return self.async_show_form(

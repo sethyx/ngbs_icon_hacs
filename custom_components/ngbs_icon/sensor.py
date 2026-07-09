@@ -8,7 +8,12 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, UnitOfTemperature
+from homeassistant.const import (
+    PERCENTAGE,
+    EntityCategory,
+    UnitOfElectricPotential,
+    UnitOfTemperature,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -54,6 +59,47 @@ SYSTEM_SENSORS: tuple[SensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         state_class=SensorStateClass.MEASUREMENT,
     ),
+    SensorEntityDescription(
+        key="hcmode",
+        name="HC mode",
+        device_class=SensorDeviceClass.ENUM,
+        options=["heating", "cooling", "switchover"],
+    ),
+    SensorEntityDescription(
+        key="prgver",
+        name="Firmware version",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key="supply_15v",
+        name="15V supply voltage",
+        device_class=SensorDeviceClass.VOLTAGE,
+        native_unit_of_measurement=UnitOfElectricPotential.MILLIVOLT,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key="supply_thermostat",
+        name="Thermostat supply voltage",
+        device_class=SensorDeviceClass.VOLTAGE,
+        native_unit_of_measurement=UnitOfElectricPotential.MILLIVOLT,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key="ref_voltage",
+        name="I/O reference voltage",
+        device_class=SensorDeviceClass.VOLTAGE,
+        native_unit_of_measurement=UnitOfElectricPotential.MILLIVOLT,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key="cycl",
+        name="I/O cycle counter",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
 )
 
 
@@ -65,11 +111,11 @@ async def async_setup_entry(
     """Set up sensors for connected thermostats and controllers."""
     coordinator = entry.runtime_data
     data = coordinator.data
-    master_icon = str(min(int(k) for k in data["icons"]))
+    master_icon = data["system"]["master_icon"]
 
     entities: list[SensorEntity] = []
     for icon_key, icon in data["icons"].items():
-        if icon["mixing_valve_pct"] is not None:
+        if icon_key == master_icon and icon["mixing_valve_pct"] is not None:
             entities.append(IconMixingValveSensor(coordinator, icon_key))
         for thermostat_id in icon["thermostats"]:
             entities.extend(
