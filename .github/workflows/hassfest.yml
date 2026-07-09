@@ -1,4 +1,4 @@
-name: HACS Validation
+name: Hassfest
 
 on:
   push:
@@ -8,21 +8,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        
-      - name: HACS validation
-        uses: hacs/action@main
-        with:
-          category: "integration"
   validate-hassfest:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-          
+
       - name: Hassfest validation
         uses: home-assistant/actions/hassfest@master

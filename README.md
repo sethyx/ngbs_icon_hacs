@@ -1,8 +1,15 @@
-# NGBS iCON
+# Home Assistant Integration for NGBS iCON
+
+[![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=flat-square)](https://hacs.xyz/)
+[![Validate](https://img.shields.io/github/actions/workflow/status/sethyx/ngbs_icon_hacs/validate.yml?branch=master&style=flat-square&label=Validate)](https://github.com/sethyx/ngbs_icon_hacs/actions/workflows/validate.yml)
+[![Hassfest](https://img.shields.io/github/actions/workflow/status/sethyx/ngbs_icon_hacs/hassfest.yml?branch=master&style=flat-square&label=Hassfest)](https://github.com/sethyx/ngbs_icon_hacs/actions/workflows/hassfest.yml)
+[![Release](https://img.shields.io/github/v/release/sethyx/ngbs_icon_hacs?style=flat-square)](https://github.com/sethyx/ngbs_icon_hacs/releases)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.11.0%2B-blue?style=flat-square)](https://www.home-assistant.io/)
+![License](https://img.shields.io/github/license/sethyx/ngbs_icon_hacs?style=flat-square)
 
 > **Disclaimer:** This is an independent hobby project with no affiliation to, endorsement by, or support from NGBS Hungary Kft. It was built by reverse-engineering documentation available online and against real hardware, not from any official SDK or vendor cooperation. Use at your own risk — the author accepts no responsibility for any damage, malfunction, or unexpected behavior of your heating/cooling system resulting from its use.
 
-Home Assistant custom integration for [NGBS iCON](https://www.ngbsh.hu/) heating/cooling controllers.
+A custom integration for [NGBS iCON](https://www.ngbsh.hu/) heating/cooling controllers.
 
 This integration talks to the controller primarily over **Modbus-TCP** (port 502) instead of the manufacturer's proprietary JSON/TCP protocol. It opens a single Modbus connection when Home Assistant starts and keeps it alive for as long as the integration is loaded, polling over that connection instead of reconnecting on every request. The legacy JSON/TCP protocol (port 7992) is still used, but only at **setup/reconfigure time** — see [Setup protocol](#setup-protocol-legacy-jsontcp) below.
 
