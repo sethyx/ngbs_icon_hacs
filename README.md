@@ -112,8 +112,8 @@ The poll interval can later be changed from the integration's **Configure** opti
 
 This repository also ships CLI tools (`custom_components/ngbs_icon/tools/`) used while migrating from the legacy JSON protocol to Modbus:
 
-- `query_old.py` — fetch and print a normalized dataset via the legacy JSON protocol.
-- `query_new.py` — fetch and print the same normalized dataset via the new Modbus library.
+- `query_json.py` — fetch and print a normalized dataset via the legacy JSON protocol.
+- `query_modbus.py` — fetch and print the same normalized dataset via the new Modbus library.
 - `compare.py` — fetch both datasets and report any mismatch, used to verify the Modbus implementation against the legacy protocol on real hardware.
 
 See `iCON_MODBUS_Register_Map.md` for the Modbus register documentation this integration is built against.

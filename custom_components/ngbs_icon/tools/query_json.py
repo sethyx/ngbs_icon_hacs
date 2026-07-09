@@ -5,7 +5,7 @@ Outputs the shared canonical JSON schema so it can be diffed against the
 Modbus output (see compare.py).
 
 Usage:
-    python tools/query_old.py --host 192.168.1.50 --sysid ABCD1234
+    python tools/query_json.py --host 192.168.1.50 --sysid ABCD1234
 """
 
 from __future__ import annotations

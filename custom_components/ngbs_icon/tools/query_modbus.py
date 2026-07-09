@@ -6,8 +6,8 @@ canonical JSON schema. Pass --sysid to enrich the output with human-readable
 names fetched over the legacy JSON protocol.
 
 Usage:
-    python tools/query_new.py --host 192.168.1.50
-    python tools/query_new.py --host 192.168.1.50 --sysid ABCD1234
+    python tools/query_modbus.py --host 192.168.1.50
+    python tools/query_modbus.py --host 192.168.1.50 --sysid ABCD1234
 """
 
 from __future__ import annotations
