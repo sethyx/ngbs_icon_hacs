@@ -6,6 +6,7 @@
   "dependencies": [],
   "documentation": "https://github.com/sethyx/ngbs_icon_hacs",
   "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/sethyx/ngbs_icon_hacs/issues",
   "loggers": ["pymodbus"],
   "requirements": ["pymodbus==3.6.9"],
   "version": "0.5"
