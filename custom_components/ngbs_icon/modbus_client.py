@@ -261,17 +261,25 @@ class IconModbusClient:
         Each thermostat dict additionally carries ``demand_a``, ``demand_b``,
         ``cond`` and ``live`` bit-derived booleans alongside ``eco``.
 
-        ``inventory`` (from the JSON setup path) is optional and only used to
-        fill in human-readable thermostat/relay ``name`` fields.
+        ``inventory`` (from the JSON setup path) is optional; besides naming
+        (``thermostats``/``relays``), it may carry a cached ``device_indices``
+        list (0-based Modbus device indices known to be present, populated by
+        config flow setup/reconfigure - see :meth:`IconModbusClient.async_discover`).
+        When present, only those devices are read. Otherwise every one of the
+        ``MAX_DEVICES`` slots is probed, which should only happen at setup or
+        on the very first read after startup - not on every poll - since a
+        device that's actually absent still costs a full round trip to rule
+        out.
         """
         inventory = inventory or {}
         therm_names: dict[str, str] = inventory.get("thermostats", {})
         relay_names: dict[str, dict[str, str]] = inventory.get("relays", {})
+        device_indices = inventory.get("device_indices") or range(reg.MAX_DEVICES)
 
         blocks: dict[int, list[int]] = {}
         async with self._lock:
             try:
-                for device_index in range(reg.MAX_DEVICES):
+                for device_index in device_indices:
                     block = await self._read_block(device_index)
                     if block is not None and block[reg.OFF_PRGVER] != 0:
                         blocks[device_index] = block

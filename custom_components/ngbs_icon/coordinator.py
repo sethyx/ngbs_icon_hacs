@@ -54,10 +54,30 @@ class IconDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=scan_interval),
         )
 
+    async def _async_fetch_and_cache(self) -> dict[str, Any]:
+        """Fetch the full dataset, caching discovered device indices in-memory.
+
+        Config flow setup/reconfigure already saves ``device_indices`` into
+        the persisted inventory so ``async_get_data`` can skip probing every
+        device slot on every poll. Entries created before that (or that
+        haven't been reconfigured since) start without a cached list, which
+        would otherwise mean a full probe on *every* poll rather than just
+        setup/init. Caching it here after the first successful read - however
+        it was obtained - fixes that for the rest of this run without forcing
+        a reconfigure; it isn't persisted to storage, so a fresh probe still
+        happens once after each Home Assistant restart until Reconfigure is run.
+        """
+        data = await self.client.async_get_data(self.inventory)
+        if not self.inventory.get("device_indices"):
+            self.inventory["device_indices"] = sorted(
+                int(icon_key) - 1 for icon_key in data["icons"]
+            )
+        return data
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch the full dataset from the controller."""
         try:
-            return await self.client.async_get_data(self.inventory)
+            return await self._async_fetch_and_cache()
         except IconModbusError as err:
             raise UpdateFailed(f"Error communicating with iCON: {err}") from err
 
@@ -79,7 +99,7 @@ class IconDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         await asyncio.sleep(WRITE_SETTLE_DELAY)
         try:
-            data = await self.client.async_get_data(self.inventory)
+            data = await self._async_fetch_and_cache()
         except IconModbusError as err:
             _LOGGER.debug("Quick refresh failed: %s", err)
             return

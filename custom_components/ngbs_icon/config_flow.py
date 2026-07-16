@@ -47,7 +47,11 @@ async def _validate(host: str) -> tuple[str, dict[str, Any]]:
 
     The SYSID is auto-detected over the legacy JSON protocol (no prior
     knowledge of it needed), then used to fetch the naming inventory. Modbus
-    reachability is confirmed separately.
+    reachability is confirmed separately, and the discovered device indices
+    are cached into the inventory so the coordinator doesn't need to re-probe
+    every device slot on every poll - only setup/reconfigure does that full
+    scan. Re-running Reconfigure after adding or removing a controller
+    refreshes this cache.
     """
     sysid = await async_discover_sysid(host)
     inventory = await IconJsonClient(host, sysid).async_fetch_inventory()
@@ -59,6 +63,7 @@ async def _validate(host: str) -> tuple[str, dict[str, Any]]:
         await modbus.async_close()
     if not present:
         raise IconModbusError("No iCON devices discovered over Modbus")
+    inventory["device_indices"] = present
     return sysid, inventory
 
 
