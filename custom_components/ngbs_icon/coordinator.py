@@ -31,7 +31,7 @@ WRITE_SETTLE_DELAY = 1.5
 
 
 class IconDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Poll the controller over the persistent Modbus connection."""
+    """Poll the controller, reconnecting over Modbus for each poll."""
 
     config_entry: IconConfigEntry
 

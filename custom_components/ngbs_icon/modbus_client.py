@@ -3,10 +3,15 @@
 This module is intentionally free of any Home Assistant imports so it can be
 reused by the integration and by the standalone CLI tools in ``tools/``.
 
-A single :class:`AsyncModbusTcpClient` connection is opened once and kept alive
-for the lifetime of the client; reads/writes reconnect transparently if the
-socket drops. Data is decoded into the shared *canonical schema* documented in
-``async_get_data``.
+The controller kills Modbus-TCP connections after roughly 30 seconds
+regardless of activity, so this client does *not* keep a persistent
+connection open. Each :meth:`IconModbusClient.async_get_data` call opens the
+connection, does its reads, and closes it again before returning. The one
+exception is right after a write: :meth:`IconModbusClient._write` leaves the
+connection open on success, so a follow-up ``async_get_data`` call (e.g. the
+coordinator's post-write settle-and-refresh) can reuse it instead of paying
+for a reconnect. Data is decoded into the shared *canonical schema* documented
+in ``async_get_data``.
 """
 
 from __future__ import annotations
@@ -138,7 +143,7 @@ def _decode_icon(
 
 
 class IconModbusClient:
-    """Persistent Modbus-TCP client for an NGBS iCON bus."""
+    """Short-lived-connection Modbus-TCP client for an NGBS iCON bus."""
 
     def __init__(
         self, host: str, port: int = 502, unit: int = 0, timeout: float = 5.0
@@ -154,7 +159,7 @@ class IconModbusClient:
     # -- connection management ------------------------------------------------
 
     async def async_connect(self) -> None:
-        """Open the persistent connection (idempotent)."""
+        """Open the connection if not already open (idempotent)."""
         if self._client is None:
             self._client = AsyncModbusTcpClient(
                 self._host, port=self._port, timeout=self._timeout
@@ -168,7 +173,7 @@ class IconModbusClient:
                 )
 
     async def async_close(self) -> None:
-        """Close the persistent connection."""
+        """Close the connection, if open."""
         if self._client is not None:
             self._client.close()
             self._client = None
@@ -265,29 +270,36 @@ class IconModbusClient:
 
         blocks: dict[int, list[int]] = {}
         async with self._lock:
-            for device_index in range(reg.MAX_DEVICES):
-                block = await self._read_block(device_index)
-                if block is not None and block[reg.OFF_PRGVER] != 0:
-                    blocks[device_index] = block
+            try:
+                for device_index in range(reg.MAX_DEVICES):
+                    block = await self._read_block(device_index)
+                    if block is not None and block[reg.OFF_PRGVER] != 0:
+                        blocks[device_index] = block
 
-            if not blocks:
-                raise IconModbusConnectionError("No iCON devices responded")
+                if not blocks:
+                    raise IconModbusConnectionError("No iCON devices responded")
 
-            # Determine the Master via the ISTATUS flag rather than assuming
-            # the lowest device index: only the true Master's extended block
-            # reports a non-zero CYCL/ISTATUS pair (others read back 0, as
-            # out-of-range registers do). Fall back to the lowest index if no
-            # device reports the flag (e.g. older firmware).
-            master_index = min(blocks)
-            cycl: int | None = None
-            for device_index in blocks:
-                extended = await self._read_extended(device_index)
-                if extended is None:
-                    continue
-                device_cycl, istatus = extended
-                if _bit(istatus, reg.ISTATUS_MASTER_BIT):
-                    master_index = device_index
-                    cycl = device_cycl
+                # Determine the Master via the ISTATUS flag rather than
+                # assuming the lowest device index: only the true Master's
+                # extended block reports a non-zero CYCL/ISTATUS pair (others
+                # read back 0, as out-of-range registers do). Fall back to the
+                # lowest index if no device reports the flag (older firmware).
+                master_index = min(blocks)
+                cycl: int | None = None
+                for device_index in blocks:
+                    extended = await self._read_extended(device_index)
+                    if extended is None:
+                        continue
+                    device_cycl, istatus = extended
+                    if _bit(istatus, reg.ISTATUS_MASTER_BIT):
+                        master_index = device_index
+                        cycl = device_cycl
+            finally:
+                # The controller kills Modbus-TCP connections after ~30s
+                # regardless of activity, so there's no point holding one open
+                # past a single read cycle. Close it here, inside the lock, so
+                # a concurrent write/read can't reconnect out from under us.
+                await self.async_close()
 
         master = blocks[master_index]
         system_cooling = master[reg.OFF_HCMODE] == 1

@@ -11,8 +11,6 @@ from .coordinator import IconConfigEntry, IconDataUpdateCoordinator
 async def async_setup_entry(hass: HomeAssistant, entry: IconConfigEntry) -> bool:
     """Set up NGBS iCON from a config entry."""
     coordinator = IconDataUpdateCoordinator(hass, entry)
-    # Open the single, long-lived Modbus connection up front.
-    await coordinator.client.async_connect()
     await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = coordinator
