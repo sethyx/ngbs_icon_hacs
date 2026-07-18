@@ -75,6 +75,8 @@ One HA device per physical iCON controller that responds on the bus (model "iCON
 
 Relay outputs are read from whichever controller their terminal block physically belongs to — this is **not necessarily the same controller as the thermostats driving them**. On systems with more water circuits than rooms it's common for relays to be spread across multiple iCON controllers while all thermostats are wired to just one; each relay is still correctly attached to its own controller's device.
 
+Relay state is read from the EffOut registers (the actual physical output), not the raw regulation-demand register — so it stays correct when a relay is forced, has a BMS override active, or is driven cross-unit (e.g. one icon's thermostat demand controlling a relay wired to a different icon).
+
 ### Thermostat devices
 
 One HA device per thermostat that is live and configured (model "iCON thermostat", named from the legacy protocol's inventory or `Thermostat <id>` as a fallback), linked to its controller device via `via_device`.

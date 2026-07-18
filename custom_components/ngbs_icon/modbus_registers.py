@@ -29,7 +29,6 @@ OFF_REG_B = 0x0001  # B-loop output, bit=1 energy demand
 OFF_ECO = 0x0004  # ECO mode, bit=1 ECO
 OFF_HC = 0x0006  # Heating/Cooling state, bit=1 cooling
 OFF_NOCONN = 0x0008  # No thermostat connection / not configured, bit=1
-OFF_RELAY = 0x000A  # Relay regulation state bitfield
 OFF_DI = 0x000B  # Digital inputs / system bits
 OFF_LIVE = 0x000E  # Thermostat connection alive, bit=1
 OFF_COND = 0x0002  # Condensation warning, bit=1 cooling blocked in that zone
@@ -60,6 +59,15 @@ OFF_PRGVER = 0x0054  # firmware version, 0 on unreachable slave -> used for disc
 # Single read window that covers everything above (offset 0x00..0x57 inclusive)
 READ_START = 0x0000
 READ_COUNT = 0x0058  # 88 registers, < 125 (FC3 limit)
+
+# Physical relay output state (EffOut), one register per relay, each a plain
+# 0/1 - not bit-packed. This is the value actually driving relay n's output:
+# regulation demand OR'd with Forced, plus HC-mode masking, valve protection,
+# and BMS cross-unit override (confirmed via decompiled firmware, iCON1v1.c,
+# and matches the legacy JSON API's "R<n>" fields exactly). It sits outside
+# the bulk read window above, so it needs its own read per device.
+OFF_EFFOUT = 0x00F0  # EffOut.0..9
+EFFOUT_READ_COUNT = 10
 
 # --- Extended function registers (absolute addresses, no device offset) -----
 
@@ -97,9 +105,7 @@ SENSOR_FAULT = 2220  # raw value indicating a temperature sensor fault
 SETPOINT_MIN = 50  # 5.0 C
 SETPOINT_MAX = 350  # 35.0 C
 
-# Relay bitfield (register OFF_RELAY) -> JSON relay id "R<n>" mapping.
-# The controller packs relay states as: bit0 = heating relay, bit1..8 = valve
-# outputs 1..8, bit9 = cooling relay. The legacy JSON protocol exposes the same
-# relays as R0..R9. The default hypothesis is a straight R<n> -> bit<n> mapping;
-# this is verified/adjusted with tools/compare.py against a live controller.
-RELAY_BIT_FOR_ID = {n: n for n in range(10)}
+# EffOut register offset (relative to OFF_EFFOUT) for each legacy JSON
+# relay id "R<n>": register 0 = heating relay, 1..8 = valve outputs 1..8,
+# 9 = cooling relay - confirmed a straight R<n> -> EffOut[n] mapping.
+RELAY_REG_FOR_ID = {n: n for n in range(10)}

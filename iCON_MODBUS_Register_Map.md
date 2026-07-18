@@ -98,7 +98,7 @@ Each register uses bit 0..7 → thermostat 1..8.
 | 0x0007 | Window | Window contact (option). bit=1: contact closed → window open |
 | 0x0008 | NoConn | No thermostat connection (or not configured). bit=1 |
 | 0x0009 | Lock | Keypad locked. 0=active, 1=locked |
-| 0x000A | Relay | Relay regulation state (bit=1: relay energized). See bit layout below |
+| 0x000A | Relay | Relay regulation state (bit=1: relay energized). See bit layout below. **Not the physical relay state** — it's the logical demand before Forced/BMS-override is applied, so it can read 0 while the relay is genuinely on. For actual on/off state use REL0–REL9 (0x00F0–0x00F9, section 3.4) |
 | 0x000B | Di | Digital inputs. See bit layout below |
 | 0x000C | Signal | System signal bits. See bit layout below |
 | 0x000D | Tpr | Timer/schedule active. bit=1: enabled, bits 0..7 → TH 1..8 |
@@ -230,7 +230,7 @@ Each thermostat has 4 setpoints: Heating Normal (XaHN), Cooling Normal (XaCN), H
 | 0x0054 | PrgVer | Firmware version (0 on unreachable Slave) |
 | 0x0055 | CfgVer.1 | Config file version low word |
 | 0x0056 | CfgVer.2 | Config file version high word |
-| 0x0057 | EffOut | Effective relay output = Relay OR Forced, incl. timing effects |
+| 0x0057 | EffOut | Effective relay output = Relay OR Forced, incl. timing effects. **Do not use this for per-relay physical state** — it does not reflect BMS overrides or cross-unit driven relays; use REL0–REL9 (0x00F0–0x00F9) instead, confirmed via decompiled firmware to be the true per-relay physical output (also named `EffOut` internally, and matching the legacy JSON API's `"R<n>"` fields) |
 
 ---
 
@@ -289,7 +289,7 @@ Each thermostat has 4 writable setpoints: SpHN (Heat Normal), SpCN (Cool Normal)
 | 0x00D8–0x00DF | LIM1–LIM8 | Max setpoint offset (actual setpoint ±LIM) |
 | 0x00E0–0x00E7 | ZEB1–ZEB8 | Zero energy band. Heat setpoint = XA−ZEB, Cool setpoint = XA+ZEB |
 | 0x00E9–0x00EF | RH1–RH8 | RH% control setpoint (currently deactivated) |
-| 0x00F0–0x00F9 | REL0–REL9 | Per-relay override during regulation: 0=OFF, 1=ON |
+| 0x00F0–0x00F9 | REL0–REL9 | Per-relay override during regulation: 0=OFF, 1=ON (write). **On read, this is the true per-relay physical output state** (internal firmware field `EffOut`, confirmed via decompiled source, `iCON1v1.c`) — regulation demand OR'd with Forced, plus HC-mode masking, valve protection, and BMS cross-unit override. This is what this integration polls for relay on/off state; it matches the legacy JSON API's `"R<n>"` fields exactly, unlike the single-register `EffOut` at 0x0057 above |
 | 0x00FA–0x00FF | REG1–REG6 | Per-thermostat local H/C switching enable: 1=enabled, 0=disabled (TH7–8 always enabled) |
 
 ---

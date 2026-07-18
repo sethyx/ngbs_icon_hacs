@@ -75,11 +75,17 @@ def _hcmode(raw: int) -> str:
 def _decode_icon(
     icon_num: int,
     block: list[int],
+    effout: list[int] | None,
     system_cooling: bool,
     therm_names: dict[str, str],
     icon_relay_names: dict[str, str],
 ) -> dict[str, Any]:
-    """Decode one device's standard block into its canonical icon dict."""
+    """Decode one device's standard block into its canonical icon dict.
+
+    ``effout`` is the device's separately-read EffOut registers (physical
+    relay output state); ``None`` if that read failed, in which case relay
+    state is reported as unknown rather than guessed.
+    """
     reg_a_mask = block[reg.OFF_REG_A]
     reg_b_mask = block[reg.OFF_REG_B]
     demand_mask = reg_a_mask | reg_b_mask
@@ -87,7 +93,6 @@ def _decode_icon(
     noconn_mask = block[reg.OFF_NOCONN]
     live_mask = block[reg.OFF_LIVE]
     cond_mask = block[reg.OFF_COND]
-    relay_word = block[reg.OFF_RELAY]
 
     thermostats: dict[str, Any] = {}
     for th in range(1, reg.MAX_THERMOSTATS + 1):
@@ -126,11 +131,11 @@ def _decode_icon(
         }
 
     relays: dict[str, Any] = {}
-    for relay_id, bit_index in reg.RELAY_BIT_FOR_ID.items():
+    for relay_id, offset in reg.RELAY_REG_FOR_ID.items():
         key = f"R{relay_id}"
         relays[key] = {
             "name": icon_relay_names.get(key),
-            "on": _bit(relay_word, bit_index),
+            "on": bool(effout[offset]) if effout is not None else None,
         }
 
     ao = block[reg.OFF_AO]
@@ -218,6 +223,21 @@ class IconModbusClient:
         cycl, istatus = result.registers
         return cycl, istatus
 
+    async def _read_effout(self, device_index: int) -> list[int] | None:
+        """Read a device's EffOut relay-output registers, or None on error."""
+        address = reg.device_base(device_index) + reg.OFF_EFFOUT
+        client = await self._ensure_connected()
+        try:
+            result = await client.read_holding_registers(
+                address, count=reg.EFFOUT_READ_COUNT, device_id=self._unit
+            )
+        except ModbusException as err:
+            await self.async_close()
+            raise IconModbusConnectionError(f"Modbus read failed: {err}") from err
+        if result.isError():
+            return None
+        return list(result.registers)
+
     # -- discovery ------------------------------------------------------------
 
     async def async_discover(self) -> list[int]:
@@ -253,10 +273,16 @@ class IconModbusClient:
                 "<icon_num>": {
                   "mixing_valve_pct": float|None,
                   "thermostats": {"<icon_num>.<th>": {...}},
-                  "relays": {"R<n>": {"name": str|None, "on": bool}},
+                  "relays": {"R<n>": {"name": str|None, "on": bool|None}},
                 }
               }
             }
+
+        A relay's ``on`` is the physical output state (EffOut), not the raw
+        regulation demand - it stays correct when a relay is forced, has a
+        BMS override active, or is driven cross-unit (e.g. one icon's
+        thermostat demand controlling a relay wired to a different icon). It
+        is ``None`` only if that icon's EffOut read itself failed.
 
         Each thermostat dict additionally carries ``demand_a``, ``demand_b``,
         ``cond`` and ``live`` bit-derived booleans alongside ``eco``.
@@ -277,6 +303,7 @@ class IconModbusClient:
         device_indices = inventory.get("device_indices") or range(reg.MAX_DEVICES)
 
         blocks: dict[int, list[int]] = {}
+        effouts: dict[int, list[int]] = {}
         async with self._lock:
             try:
                 for device_index in device_indices:
@@ -292,16 +319,22 @@ class IconModbusClient:
                 # extended block reports a non-zero CYCL/ISTATUS pair (others
                 # read back 0, as out-of-range registers do). Fall back to the
                 # lowest index if no device reports the flag (older firmware).
+                # Also pick up each present device's EffOut (physical relay
+                # output) registers here, folded into this same per-device
+                # loop rather than a separate pass.
                 master_index = min(blocks)
                 cycl: int | None = None
                 for device_index in blocks:
                     extended = await self._read_extended(device_index)
-                    if extended is None:
-                        continue
-                    device_cycl, istatus = extended
-                    if _bit(istatus, reg.ISTATUS_MASTER_BIT):
-                        master_index = device_index
-                        cycl = device_cycl
+                    if extended is not None:
+                        device_cycl, istatus = extended
+                        if _bit(istatus, reg.ISTATUS_MASTER_BIT):
+                            master_index = device_index
+                            cycl = device_cycl
+
+                    effout = await self._read_effout(device_index)
+                    if effout is not None:
+                        effouts[device_index] = effout
             finally:
                 # The controller kills Modbus-TCP connections after ~30s
                 # regardless of activity, so there's no point holding one open
@@ -333,7 +366,12 @@ class IconModbusClient:
             icon_num = device_index + 1
             icon_key = str(icon_num)
             data["icons"][icon_key] = _decode_icon(
-                icon_num, block, system_cooling, therm_names, relay_names.get(icon_key, {})
+                icon_num,
+                block,
+                effouts.get(device_index),
+                system_cooling,
+                therm_names,
+                relay_names.get(icon_key, {}),
             )
 
         return data
