@@ -27,7 +27,11 @@ type IconConfigEntry = ConfigEntry[IconDataUpdateCoordinator]
 # The controller's internal regulation cycle takes ~1-1.2s to fold a write
 # into its read-only mirror registers (measured live); wait this long before
 # reading back so the post-write refresh doesn't just observe the stale value.
-WRITE_SETTLE_DELAY = 1.5
+# Cross-unit BMS propagation (e.g. a relay on one icon driven by a thermostat
+# on another) takes longer to settle the more icon units are chained on the
+# bus, so each slave adds a bit more on top of the single-unit baseline.
+WRITE_SETTLE_BASE_DELAY = 1.5
+WRITE_SETTLE_PER_SLAVE_DELAY = 0.5
 
 
 class IconDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -74,6 +78,24 @@ class IconDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         return data
 
+    def _write_settle_delay(self) -> float:
+        """Scale the post-write settle delay by how many icon units are present.
+
+        Prefers the cached ``device_indices`` (the known bus topology from
+        setup/reconfigure) over the last poll's ``data["icons"]``, since a
+        slave that's temporarily offline shouldn't shrink the delay - the
+        physical propagation chain is unchanged either way.
+        """
+        device_indices = self.inventory.get("device_indices")
+        if device_indices:
+            icon_count = len(device_indices)
+        elif self.data:
+            icon_count = len(self.data["icons"])
+        else:
+            icon_count = 1
+        slave_count = max(0, icon_count - 1)
+        return WRITE_SETTLE_BASE_DELAY + WRITE_SETTLE_PER_SLAVE_DELAY * slave_count
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch the full dataset from the controller."""
         try:
@@ -93,11 +115,11 @@ class IconDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         always re-reads every controller rather than just the one written to.
         A full read is fast in practice (well under a second), but the
         controller itself needs a moment to fold the write into its
-        read-only mirror registers, so this waits ``WRITE_SETTLE_DELAY``
-        first. Best effort: on failure this silently defers to the next
-        scheduled poll.
+        read-only mirror registers, so this waits for
+        :meth:`_write_settle_delay` first. Best effort: on failure this
+        silently defers to the next scheduled poll.
         """
-        await asyncio.sleep(WRITE_SETTLE_DELAY)
+        await asyncio.sleep(self._write_settle_delay())
         try:
             data = await self._async_fetch_and_cache()
         except IconModbusError as err:

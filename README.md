@@ -106,14 +106,14 @@ A few things drove that design:
 
 - **A write can affect more than the thermostat it targeted.** The H/C-master thermostat's preset can be configured to cascade to every zone, and heating/cooling mode is always system-wide — so a partial, single-controller refresh isn't safe, even though it would be faster.
 - **Relays can live on a different controller than the thermostat driving them** (see above), so a full re-read is needed to catch relay/valve changes triggered by a thermostat write.
-- **The controller itself needs time to settle.** A write goes to a separate command register from the one entities read back from; the controller's internal regulation cycle takes roughly 1–1.2 seconds (measured against live hardware) to fold a write into its read-only mirror registers. `async_refresh_now()` waits 1.5 seconds before reading back to give margin over that.
+- **The controller itself needs time to settle.** A write goes to a separate command register from the one entities read back from; the controller's internal regulation cycle takes roughly 1–1.2 seconds (measured against live hardware) to fold a write into its read-only mirror registers. `async_refresh_now()` waits before reading back to give margin over that: 1.5 seconds as a baseline, plus 0.5 seconds for each slave icon controller beyond the master (e.g. 2.5 seconds on a 3-unit system), since cross-unit BMS propagation takes longer to settle the more units are chained on the bus.
 - A full re-read of the whole bus is fast in practice (well under a second on top of the settle delay), so none of this meaningfully changes the "quick" experience the fix is meant to deliver.
 
 ## Connection handling
 
 The controller kills Modbus-TCP connections after roughly 30 seconds, regardless of whether they're idle or actively being used. Rather than maintaining one persistent connection for the integration's lifetime (which would just mean eating a spurious disconnect on whatever request happened to be in flight when the timer expired), the client opens a connection for each read cycle and closes it again as soon as that cycle finishes.
 
-There's one deliberate exception: a write leaves its connection open on success instead of closing it immediately. Since every climate write is always followed by a quick refresh roughly 1.5 seconds later (see [Live update behavior](#live-update-behavior-after-writes)), that follow-up read reuses the still-open connection instead of paying for a reconnect, then closes it once it's done. If a write isn't followed by a read within that window, the connection is simply picked up (and reconnected if needed) by whatever Modbus operation happens next.
+There's one deliberate exception: a write leaves its connection open on success instead of closing it immediately. Since every climate write is always followed by a quick refresh a short while later (see [Live update behavior](#live-update-behavior-after-writes)), that follow-up read reuses the still-open connection instead of paying for a reconnect, then closes it once it's done. If a write isn't followed by a read within that window, the connection is simply picked up (and reconnected if needed) by whatever Modbus operation happens next.
 
 ## Setup protocol (legacy JSON/TCP)
 
