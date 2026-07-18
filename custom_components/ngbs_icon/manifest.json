@@ -9,5 +9,5 @@
   "issue_tracker": "https://github.com/sethyx/ngbs_icon_hacs/issues",
   "loggers": ["pymodbus"],
   "requirements": ["pymodbus>=3.10.0"],
-  "version": "1.3.0"
+  "version": "1.4.0"
 }
