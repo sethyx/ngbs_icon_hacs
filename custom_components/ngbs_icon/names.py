@@ -38,26 +38,64 @@ async def _async_send(
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port), timeout=timeout
         )
-    except (TimeoutError, OSError) as err:
-        raise IconJsonConnectionError(f"Connection failed: {err}") from err
+    except TimeoutError as err:
+        raise IconJsonConnectionError(
+            f"Timed out after {timeout:g}s connecting to {host}:{port} "
+            "(JSON port). Check the IP address and that the controller is "
+            "powered on and on the same network."
+        ) from err
+    except ConnectionRefusedError as err:
+        raise IconJsonConnectionError(
+            f"{host} refused the connection on port {port} (JSON port) - the host "
+            "is reachable but nothing is listening there. Check the IP address "
+            "belongs to the iCON controller."
+        ) from err
+    except OSError as err:
+        raise IconJsonConnectionError(
+            f"Cannot open {host}:{port} (JSON port): {err.strerror or err}"
+        ) from err
 
     try:
         writer.write(json.dumps(payload).encode("utf-8"))
         await writer.drain()
         response = await asyncio.wait_for(reader.read(-1), timeout=timeout)
-    except (TimeoutError, OSError) as err:
-        raise IconJsonConnectionError(f"Communication failed: {err}") from err
+    except TimeoutError as err:
+        raise IconJsonConnectionError(
+            f"{host}:{port} accepted the connection but sent no reply within "
+            f"{timeout:g}s. Is something other than an iCON controller "
+            "listening on that port?"
+        ) from err
+    except OSError as err:
+        raise IconJsonConnectionError(
+            f"{host}:{port} accepted the connection then dropped it "
+            f"({err.strerror or err}). The controller allows only one client at a "
+            "time - another integration, the NGBS app or a browser session may "
+            "already be connected."
+        ) from err
     finally:
         if not writer.is_closing():
             writer.close()
             await writer.wait_closed()
 
     if not response:
-        raise IconJsonConnectionError("Empty response from controller")
+        raise IconJsonConnectionError(
+            f"{host}:{port} closed the connection without sending any data. "
+            "Another client may already be connected to the controller, or "
+            "this is not an iCON controller."
+        )
     try:
         return json.loads(response.decode("utf-8"))
+    except UnicodeDecodeError as err:
+        raise IconJsonError(
+            f"{host}:{port} replied with non-text data ({len(response)} bytes) - "
+            "this does not look like an iCON controller"
+        ) from err
     except json.JSONDecodeError as err:
-        raise IconJsonError(f"Invalid JSON response: {err}") from err
+        preview = response[:80].decode("utf-8", "replace")
+        raise IconJsonError(
+            f"{host}:{port} replied with data that is not valid JSON ({err}); "
+            f"first bytes: {preview!r}"
+        ) from err
 
 
 async def async_discover_sysid(
@@ -74,7 +112,10 @@ async def async_discover_sysid(
     data = await _async_send(host, port, timeout, {"RELOAD": 6})
     sysid = data.get("SYSID")
     if not sysid:
-        raise IconJsonError("Controller did not return a SYSID")
+        raise IconJsonError(
+            f"{host}:{port} answered but the reply contained no SYSID "
+            f"(keys: {', '.join(sorted(data)) or 'none'})"
+        )
     return sysid
 
 
@@ -95,7 +136,10 @@ class IconJsonClient:
         payload = command | {"SYSID": self._system_id}
         data = await _async_send(self._host, self._port, self._timeout, payload)
         if data.get("ERR") == 1:
-            raise IconJsonError("Controller returned an error (bad SYSID?)")
+            raise IconJsonError(
+                f"Controller rejected the request for SYSID {self._system_id} "
+                "(ERR=1) - the detected System ID was not accepted"
+            )
         return data
 
     async def async_get_raw(self) -> dict[str, Any]:

@@ -173,9 +173,39 @@ class IconModbusClient:
             _LOGGER.debug("Connecting to iCON Modbus at %s:%s", self._host, self._port)
             connected = await self._client.connect()
             if not connected:
+                # pymodbus' connect() only returns False, so probe the socket
+                # ourselves to turn that into an actionable reason.
                 raise IconModbusConnectionError(
-                    f"Could not connect to {self._host}:{self._port}"
+                    f"{self._host}:{self._port} - {await self._async_probe_reason()}"
                 )
+
+    async def _async_probe_reason(self) -> str:
+        """Return a human-readable reason the Modbus port could not be opened."""
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(self._host, self._port), timeout=self._timeout
+            )
+        except TimeoutError:
+            return (
+                f"no response within {self._timeout:g}s - wrong IP address, or the "
+                "controller is unreachable or blocked by a firewall"
+            )
+        except ConnectionRefusedError:
+            return (
+                "the host is reachable but refused the connection - is Modbus-TCP "
+                "enabled on the controller?"
+            )
+        except OSError as err:
+            return err.strerror or str(err)
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except OSError:  # pragma: no cover - close-time errors are not useful here
+            pass
+        return (
+            "the port accepts connections but the Modbus handshake failed - another "
+            "client may be holding the controller's single Modbus connection"
+        )
 
     async def async_close(self) -> None:
         """Close the connection, if open."""

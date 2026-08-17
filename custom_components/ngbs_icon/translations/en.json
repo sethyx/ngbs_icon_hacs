@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "data": {
-          "ip_address": "[%key:common::config_flow::data::ip_address%]",
+          "ip_address": "IP address",
           "scan_interval": "Poll interval (seconds)"
         },
         "data_description": {
@@ -13,8 +13,12 @@
       },
       "reconfigure": {
         "data": {
-          "ip_address": "[%key:common::config_flow::data::ip_address%]",
+          "ip_address": "IP address",
           "scan_interval": "Poll interval (seconds)"
+        },
+        "data_description": {
+          "ip_address": "IP address of the iCON controller. The System ID is detected automatically.",
+          "scan_interval": "How often to poll the controller over Modbus."
         }
       }
     },
@@ -25,12 +29,12 @@
       "cannot_connect_modbus": "The JSON port answered, but Modbus-TCP failed: {reason}",
       "modbus_error": "Modbus-TCP communication with the controller failed: {reason}",
       "no_devices": "No iCON units were found on the Modbus bus: {reason}",
-      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "cannot_connect": "Failed to connect",
       "unknown": "Unexpected error: {reason}"
     },
     "abort": {
-      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
-      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+      "already_configured": "Device is already configured",
+      "reconfigure_successful": "Re-configuration was successful",
       "unique_id_mismatch": "The System ID does not match the configured device."
     }
   },

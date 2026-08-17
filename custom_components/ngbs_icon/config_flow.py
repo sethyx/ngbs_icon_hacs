@@ -17,12 +17,17 @@ from homeassistant.core import callback
 
 from .const import (
     CONF_INVENTORY,
+    DEFAULT_MODBUS_PORT,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     MIN_SCAN_INTERVAL,
 )
 from .coordinator import IconConfigEntry
-from .modbus_client import IconModbusClient, IconModbusError
+from .modbus_client import (
+    IconModbusClient,
+    IconModbusConnectionError,
+    IconModbusError,
+)
 from .names import (
     IconJsonClient,
     IconJsonConnectionError,
@@ -31,6 +36,17 @@ from .names import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class ValidationFailed(Exception):
+    """A setup check failed, carrying the error key and a human-readable reason."""
+
+    def __init__(self, error: str, reason: str) -> None:
+        """Store the strings.json error key and the detailed reason."""
+        super().__init__(reason)
+        self.error = error
+        self.reason = reason
+
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
@@ -52,17 +68,46 @@ async def _validate(host: str) -> tuple[str, dict[str, Any]]:
     every device slot on every poll - only setup/reconfigure does that full
     scan. Re-running Reconfigure after adding or removing a controller
     refreshes this cache.
+
+    Each stage is wrapped so the user sees which one failed and why, instead of
+    a bare "cannot connect".
     """
-    sysid = await async_discover_sysid(host)
-    inventory = await IconJsonClient(host, sysid).async_fetch_inventory()
+    # Stage 1: reach the controller on the JSON port and auto-detect the SYSID.
+    try:
+        sysid = await async_discover_sysid(host)
+    except IconJsonConnectionError as err:
+        raise ValidationFailed("cannot_connect_json", str(err)) from err
+    except IconJsonError as err:
+        raise ValidationFailed("invalid_json_response", str(err)) from err
+
+    # Stage 2: fetch the naming inventory, which requires the SYSID to be valid.
+    try:
+        inventory = await IconJsonClient(host, sysid).async_fetch_inventory()
+    except IconJsonConnectionError as err:
+        raise ValidationFailed("cannot_connect_json", str(err)) from err
+    except IconJsonError as err:
+        raise ValidationFailed("invalid_inventory", str(err)) from err
+
+    # Stage 3: confirm Modbus-TCP reachability and scan for devices.
     modbus = IconModbusClient(host)
     try:
         await modbus.async_connect()
         present = await modbus.async_discover()
+    except IconModbusConnectionError as err:
+        raise ValidationFailed("cannot_connect_modbus", str(err)) from err
+    except IconModbusError as err:
+        raise ValidationFailed("modbus_error", str(err)) from err
     finally:
         await modbus.async_close()
+
     if not present:
-        raise IconModbusError("No iCON devices discovered over Modbus")
+        raise ValidationFailed(
+            "no_devices",
+            f"Connected to {host}:{DEFAULT_MODBUS_PORT} over Modbus-TCP and the "
+            f"JSON port reported SYSID {sysid}, but none of the device slots "
+            "returned a firmware version, so no iCON unit could be identified. "
+            "Check that the units are powered and addressed on the bus.",
+        )
     inventory["device_indices"] = present
     return sysid, inventory
 
@@ -77,11 +122,18 @@ class NgbsIconConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle the initial setup step."""
         errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {}
         if user_input is not None:
             try:
                 sysid, inventory = await _validate(user_input[CONF_IP_ADDRESS])
-            except (IconJsonConnectionError, IconJsonError, IconModbusError):
-                errors["base"] = "cannot_connect"
+            except ValidationFailed as err:
+                _LOGGER.error("NGBS iCON setup failed: %s", err.reason)
+                errors["base"] = err.error
+                placeholders["reason"] = err.reason
+            except Exception as err:  # noqa: BLE001 - surface the real cause
+                _LOGGER.exception("Unexpected error during NGBS iCON setup")
+                errors["base"] = "unknown"
+                placeholders["reason"] = f"{type(err).__name__}: {err}"
             else:
                 await self.async_set_unique_id(sysid)
                 self._abort_if_unique_id_configured()
@@ -91,7 +143,10 @@ class NgbsIconConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
 
         return self.async_show_form(
-            step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+            step_id="user",
+            data_schema=STEP_USER_DATA_SCHEMA,
+            errors=errors,
+            description_placeholders=placeholders,
         )
 
     async def async_step_reconfigure(
@@ -99,11 +154,18 @@ class NgbsIconConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle reconfiguration of an existing entry."""
         errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {}
         if user_input is not None:
             try:
                 sysid, inventory = await _validate(user_input[CONF_IP_ADDRESS])
-            except (IconJsonConnectionError, IconJsonError, IconModbusError):
-                errors["base"] = "cannot_connect"
+            except ValidationFailed as err:
+                _LOGGER.error("NGBS iCON reconfigure failed: %s", err.reason)
+                errors["base"] = err.error
+                placeholders["reason"] = err.reason
+            except Exception as err:  # noqa: BLE001 - surface the real cause
+                _LOGGER.exception("Unexpected error during NGBS iCON reconfigure")
+                errors["base"] = "unknown"
+                placeholders["reason"] = f"{type(err).__name__}: {err}"
             else:
                 await self.async_set_unique_id(sysid)
                 self._abort_if_unique_id_mismatch()
@@ -122,6 +184,7 @@ class NgbsIconConfigFlow(ConfigFlow, domain=DOMAIN):
                 STEP_USER_DATA_SCHEMA, self._get_reconfigure_entry().data
             ),
             errors=errors,
+            description_placeholders=placeholders,
         )
 
     @staticmethod
