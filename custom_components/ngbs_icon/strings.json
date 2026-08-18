@@ -4,25 +4,30 @@
       "user": {
         "data": {
           "ip_address": "[%key:common::config_flow::data::ip_address%]",
+          "sysid": "System ID (optional)",
           "scan_interval": "Poll interval (seconds)"
         },
         "data_description": {
-          "ip_address": "IP address of the iCON controller. The System ID is detected automatically.",
+          "ip_address": "IP address of the iCON controller.",
+          "sysid": "Leave blank to auto-detect. Only needed if setup reports that auto-detection failed; find it in the iCON web interface or app, or on the controller's label.",
           "scan_interval": "How often to poll the controller over Modbus."
         }
       },
       "reconfigure": {
         "data": {
           "ip_address": "[%key:common::config_flow::data::ip_address%]",
+          "sysid": "System ID (optional)",
           "scan_interval": "Poll interval (seconds)"
+        },
+        "data_description": {
+          "sysid": "Leave blank to auto-detect. Only needed if setup reports that auto-detection failed; find it in the iCON web interface or app, or on the controller's label."
         }
       }
     },
     "error": {
       "cannot_connect_json": "Cannot reach the controller: {reason}",
-      "invalid_json_response": "Unexpected reply from the device: {reason}",
       "invalid_inventory": "Reached the controller, but reading its configuration failed: {reason}",
-      "cannot_connect_modbus": "The JSON port answered, but Modbus-TCP failed: {reason}",
+      "cannot_connect_modbus": "Cannot reach the controller over Modbus-TCP: {reason}",
       "modbus_error": "Modbus-TCP communication with the controller failed: {reason}",
       "no_devices": "No iCON units were found on the Modbus bus: {reason}",
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
