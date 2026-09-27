@@ -10,6 +10,10 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import IconDataUpdateCoordinator
 
+# HA 2026.8 deprecated DeviceInfo's `via_device` identifier tuple in favour of
+# `via_device_id`; older cores only accept the former.
+_SUPPORTS_VIA_DEVICE_ID = "via_device_id" in DeviceInfo.__annotations__
+
 
 def icon_device_info(
     sysid: str, icon_key: str, firmware: int | None = None
@@ -25,16 +29,24 @@ def icon_device_info(
 
 
 def thermostat_device_info(
-    sysid: str, icon_key: str, thermostat_id: str, name: str | None
+    sysid: str,
+    icon_key: str,
+    thermostat_id: str,
+    name: str | None,
+    icon_device_id: str | None,
 ) -> DeviceInfo:
     """Return DeviceInfo for a thermostat, nested under its iCON controller."""
-    return DeviceInfo(
+    info = DeviceInfo(
         identifiers={(DOMAIN, f"{sysid}_{thermostat_id}")},
         manufacturer=MANUFACTURER,
         model="iCON thermostat",
         name=name or f"Thermostat {thermostat_id}",
-        via_device=(DOMAIN, f"{sysid}_icon{icon_key}"),
     )
+    if not _SUPPORTS_VIA_DEVICE_ID:
+        info["via_device"] = (DOMAIN, f"{sysid}_icon{icon_key}")
+    elif icon_device_id is not None:
+        info["via_device_id"] = icon_device_id
+    return info
 
 
 class IconIconEntity(CoordinatorEntity[IconDataUpdateCoordinator]):
@@ -76,7 +88,11 @@ class IconThermostatEntity(CoordinatorEntity[IconDataUpdateCoordinator]):
         self._thermostat_id = thermostat_id
         name = coordinator.inventory.get("thermostats", {}).get(thermostat_id)
         self._attr_device_info = thermostat_device_info(
-            coordinator.sysid, icon_key, thermostat_id, name
+            coordinator.sysid,
+            icon_key,
+            thermostat_id,
+            name,
+            coordinator.icon_device_ids.get(icon_key),
         )
 
     @property

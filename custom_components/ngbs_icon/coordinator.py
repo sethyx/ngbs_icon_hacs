@@ -43,6 +43,9 @@ class IconDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Initialize the coordinator and the Modbus client."""
         self.sysid: str = entry.data[CONF_ID]
         self.inventory: dict[str, Any] = entry.data.get(CONF_INVENTORY, {})
+        # Device registry ids of the iCON controllers, keyed by icon key; filled
+        # in at setup so thermostat devices can reference their controller.
+        self.icon_device_ids: dict[str, str] = {}
         self.client = IconModbusClient(
             entry.data[CONF_IP_ADDRESS], port=DEFAULT_MODBUS_PORT
         )

@@ -3,15 +3,27 @@
 from __future__ import annotations
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 
 from .const import PLATFORMS
 from .coordinator import IconConfigEntry, IconDataUpdateCoordinator
+from .entity import icon_device_info
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: IconConfigEntry) -> bool:
     """Set up NGBS iCON from a config entry."""
     coordinator = IconDataUpdateCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
+
+    # Register the controllers up front so thermostat devices, created by the
+    # platforms in parallel, can link to them by device id.
+    dev_reg = dr.async_get(hass)
+    for icon_key, icon in coordinator.data["icons"].items():
+        device = dev_reg.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            **icon_device_info(coordinator.sysid, icon_key, icon.get("firmware")),
+        )
+        coordinator.icon_device_ids[icon_key] = device.id
 
     entry.runtime_data = coordinator
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
